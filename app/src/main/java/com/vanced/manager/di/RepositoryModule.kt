@@ -1,21 +1,37 @@
 package com.vanced.manager.di
 
-import com.vanced.manager.network.JsonService
-import com.vanced.manager.network.model.JsonDtoMapper
-import com.vanced.manager.repository.JsonRepository
-import com.vanced.manager.repository.JsonRepositoryImpl
+import com.vanced.manager.network.GithubService
+import com.vanced.manager.repository.AppRepository
+import com.vanced.manager.repository.AppRepositoryImpl
+import com.vanced.manager.repository.PreferenceRepository
+import com.vanced.manager.repository.PreferenceRepositoryImpl
+import com.vanced.manager.repository.manager.NonrootPackageManager
+import com.vanced.manager.repository.manager.RootPackageManager
+import com.vanced.manager.repository.source.PreferenceDatasource
 import org.koin.dsl.module
 
 val repositoryModule = module {
 
-    fun provideJsonRepository(
-        jsonService: JsonService,
-        jsonDtoMapper: JsonDtoMapper
-    ): JsonRepository = JsonRepositoryImpl(
-        jsonService,
-        jsonDtoMapper
-    )
+    fun provideGithubRepository(
+        githubService: GithubService,
+        nonrootPackageManager: NonrootPackageManager,
+        rootPackageManager: RootPackageManager,
+    ): AppRepository {
+        return AppRepositoryImpl(
+            githubService = githubService,
+            nonrootPackageManager = nonrootPackageManager,
+            rootPackageManager = rootPackageManager
+        )
+    }
 
-    single { provideJsonRepository(get(), get()) }
+    fun providePreferenceRepository(
+        preferenceDatasource: PreferenceDatasource
+    ): PreferenceRepository {
+        return PreferenceRepositoryImpl(
+            preferenceDatasource = preferenceDatasource
+        )
+    }
 
+    single { provideGithubRepository(get(), get(), get()) }
+    single { providePreferenceRepository(get()) }
 }

@@ -1,146 +1,182 @@
 package com.vanced.manager.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.foundation.background
-import androidx.compose.material.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBackIos
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastForEach
-import androidx.navigation.NavController
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import com.github.zsoltk.compose.backpress.BackPressHandler
+import com.github.zsoltk.compose.backpress.LocalBackPressHandler
+import com.github.zsoltk.compose.router.Router
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
-import com.vanced.manager.ui.components.color.managerAnimatedColor
-import com.vanced.manager.ui.components.color.managerSurfaceColor
-import com.vanced.manager.ui.components.color.managerTextColor
-import com.vanced.manager.ui.components.menu.ManagerDropdownMenuItem
-import com.vanced.manager.ui.components.text.ToolbarTitleText
-import com.vanced.manager.ui.resources.managerString
-import com.vanced.manager.ui.screens.Screen
+import com.vanced.manager.installer.service.AppInstallService
+import com.vanced.manager.installer.service.AppUninstallService
+import com.vanced.manager.ui.screen.*
 import com.vanced.manager.ui.theme.ManagerTheme
-import com.vanced.manager.ui.theme.isDark
+import com.vanced.manager.ui.util.Screen
+import com.vanced.manager.ui.util.animated
+import com.vanced.manager.ui.viewmodel.InstallViewModel
+import com.vanced.manager.ui.viewmodel.MainViewModel
+import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContent {
-            ManagerTheme {
-                MainActivityLayout()
-            }
-        }
-    }
+    private val installViewModel: InstallViewModel by viewModel()
+    private val mainViewModel: MainViewModel by viewModel()
 
-    @Composable
-    fun MainActivityLayout() {
-        val isMenuExpanded = remember { mutableStateOf(false) }
-        val systemUiController = rememberSystemUiController()
-        val surfaceColor = managerSurfaceColor()
-        val isDark = isDark()
-        val navController = rememberNavController()
+    private val backPressHandler = BackPressHandler()
 
-        val screens = listOf(
-            Screen.Home,
-            Screen.Settings,
-            Screen.About,
-            Screen.Logs
-        )
+    private val installBroadcastReceiver = object : BroadcastReceiver() {
 
-        SideEffect {
-            systemUiController.setSystemBarsColor(surfaceColor, !isDark)
-        }
-
-        Scaffold(
-            topBar = {
-                MainToolbar(
-                    navController = navController,
-                    screens = screens,
-                    isMenuExpanded = isMenuExpanded
-                )
-            },
-            backgroundColor = managerSurfaceColor()
-        ) {
-            NavHost(
-                navController = navController,
-                startDestination = Screen.Home.route
-            ) {
-                screens.fastForEach { screen ->
-                    composable(screen.route) {
-                        screen.content()
-                    }
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                AppInstallService.APP_INSTALL_ACTION -> {
+                    installViewModel.postInstallStatus(
+                        pmStatus = intent.getIntExtra(AppInstallService.EXTRA_INSTALL_STATUS, -999),
+                        extra = intent.getStringExtra(AppInstallService.EXTRA_INSTALL_STATUS_MESSAGE)!!,
+                    )
+                    mainViewModel.fetch()
+                }
+                AppUninstallService.APP_UNINSTALL_ACTION -> {
+                    mainViewModel.fetch()
                 }
             }
         }
     }
 
-    @Composable
-    fun MainToolbar(
-        navController: NavController,
-        screens: List<Screen>,
-        isMenuExpanded: MutableState<Boolean>
-    ) {
-        val currentScreenRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-        TopAppBar(
-            title = {
-                ToolbarTitleText(managerString(stringId = screens.find { it.route == currentScreenRoute }?.displayName))
-            },
-            backgroundColor = managerAnimatedColor(color = MaterialTheme.colors.surface),
-            actions = {
-                if (currentScreenRoute == Screen.Home.route) {
-                    IconButton(
-                        onClick = { isMenuExpanded.value = !isMenuExpanded.value }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = null,
-                            tint = managerTextColor()
-                        )
-                    }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        mainViewModel.fetch()
+        setContent {
+            val isDark = mainViewModel.appTheme.isDark()
+            ManagerTheme(darkMode = isDark) {
+                val surfaceColor = MaterialTheme.colorScheme.surface.animated
 
-                    DropdownMenu(
-                        expanded = isMenuExpanded.value,
-                        onDismissRequest = {
-                            isMenuExpanded.value = false
-                        },
-                        modifier = Modifier.background(MaterialTheme.colors.surface)
-                    ) {
-                        screens.filter { it.route != currentScreenRoute }.forEach {
-                            ManagerDropdownMenuItem(
-                                title = stringResource(id = it.displayName)
-                            ) {
-                                isMenuExpanded.value = !isMenuExpanded.value
-                                navController.navigate(it.route) {
-                                    popUpTo(Screen.Home.route) {
-                                        saveState = true
+                val systemUiController = rememberSystemUiController()
+
+                SideEffect {
+                    systemUiController.setSystemBarsColor(
+                        color = surfaceColor,
+                        darkIcons = !isDark
+                    )
+                }
+
+                CompositionLocalProvider(
+                    LocalBackPressHandler provides backPressHandler
+                ) {
+                    Router<Screen>("VancedManager", Screen.Home) { backStack ->
+                        when (val screen = backStack.last()) {
+                            is Screen.Home -> {
+                                HomeScreen(
+                                    managerState = mainViewModel.appState,
+                                    onRefresh = {
+                                        mainViewModel.fetch()
+                                    },
+                                    onToolbarScreenSelected = {
+                                        backStack.push(it)
+                                    },
+                                    onAppDownloadClick = { app ->
+                                        /*if (installationOptions != null) {
+                                            backStack.push(
+                                                Screen.Configuration(
+                                                    appName,
+                                                    appVersions,
+                                                    installationOptions
+                                                )
+                                            )
+                                        } else {
+                                            backStack.push(Screen.Install(appName, appVersions))
+                                        }*/
+                                    },
+                                    onAppLaunchClick = { app ->
+                                        mainViewModel.launchApp(app.packageName, app.launchActivity)
+                                    },
+                                    onAppUninstallClick = { app ->
+                                        mainViewModel.uninstallApp(app.packageName)
                                     }
-                                }
+                                )
+                            }
+                            is Screen.Settings -> {
+                                SettingsScreen(
+                                    onToolbarBackButtonClick = {
+                                        backStack.pop()
+                                    },
+                                    onThemeChange = {
+                                        mainViewModel.appTheme = it
+                                    }
+                                )
+                            }
+                            is Screen.About -> {
+                                AboutScreen(
+                                    onToolbarBackButtonClick = {
+                                        backStack.pop()
+                                    }
+                                )
+                            }
+                            is Screen.Logs -> {
+
+                            }
+                            is Screen.Configuration -> {
+                                ConfigurationScreen(
+                                    installationOptions = screen.appInstallationOptions,
+                                    onToolbarBackButtonClick = {
+                                        backStack.pop()
+                                    },
+                                    onFinishClick = {
+                                        backStack.push(
+                                            Screen.Install(
+                                                screen.appName,
+                                                screen.appVersions
+                                            )
+                                        )
+                                    }
+                                )
+                            }
+                            is Screen.Install -> {
+                                InstallScreen(
+                                    appName = screen.appName,
+                                    appVersions = screen.appVersions,
+                                    viewModel = installViewModel,
+                                    onFinishClick = {
+                                        installViewModel.clear()
+                                        backStack.newRoot(Screen.Home)
+                                    }
+                                )
                             }
                         }
                     }
                 }
-            },
-            navigationIcon = if (currentScreenRoute != Screen.Home.route) { {
-                IconButton(onClick = {
-                    navController.popBackStack()
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBackIos,
-                        contentDescription = null,
-                        tint = managerTextColor()
-                    )
-                }
-            }} else null,
-            elevation = 0.dp
+            }
+        }
+    }
+
+    override fun onBackPressed() {
+        if (!backPressHandler.handle())
+            super.onBackPressed()
+    }
+
+    override fun onStart() {
+        super.onStart()
+
+        registerReceiver(
+            installBroadcastReceiver,
+            IntentFilter().apply {
+                addAction(AppInstallService.APP_INSTALL_ACTION)
+                addAction(AppUninstallService.APP_UNINSTALL_ACTION)
+            }
         )
     }
+
+    override fun onStop() {
+        super.onStop()
+
+        unregisterReceiver(installBroadcastReceiver)
+    }
+
 
 }

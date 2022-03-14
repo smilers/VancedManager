@@ -12,11 +12,11 @@
 #   public *;
 #}
 
--keep class com.vanced.manager.network.model.AppDto {
+-keep class com.vanced.manager.network.dto.GithubReleaseDto {
      *;
 }
 
--keep class com.vanced.manager.network.model.JsonDto {
+-keep class com.vanced.manager.network.dto.GithubReleaseAssetDto {
      *;
 }
 
